@@ -1,10 +1,11 @@
-from pymongo import MongoClient
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_mongodb import MongoDBAtlasVectorSearch
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
-from langchain.schema import Document
 import streamlit as st
+from pymongo import MongoClient
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_mongodb import MongoDBAtlasVectorSearch
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.documents import Document
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 
 MONGO_URI = st.secrets["MONGO_URI"]
 DB_NAME = "vector_store_database"
@@ -14,28 +15,41 @@ ATLAS_VECTOR_SEARCH = "vector_index_ghw"
 def get_vector_store():
     client = MongoClient(MONGO_URI)
     collection = client[DB_NAME][COLLECTION_NAME]
-
-    embeddings = GoogleGenerativeAIEmbeddings(model="model/embeddings-001")
-    vector_store = MongoDBAtlasVectorSearch(collection=collection, embedding=embeddings, index_name=ATLAS_VECTOR_SEARCH)
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    
+    vector_store = MongoDBAtlasVectorSearch(
+        collection=collection, 
+        embedding=embeddings, 
+        index_name=ATLAS_VECTOR_SEARCH
+    )
     return vector_store
 
 def ingest_text(text_content):
     vector_store = get_vector_store()
-    docs = Document(text_content)
-    vector_store.add_documents([docs])
-    return True
+    doc = Document(page_content=text_content)
+    vector_store.add_documents([doc])
 
 def get_rag_response(query):
     vector_store = get_vector_store()
-    # might be wrong
+
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
-    retriver = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+    retriever = vector_store.as_retriever(search_kwargs={"k": 3})
 
-    prompt_template = """"Use the following context from the user in order to provide
-    an accurate anwer"""
-
-    prompt = PromptTemplate(template=prompt_template, input_variables=['context', 'question'])
-    qa_chain = RetrievalQA.from_chain_type(llm=llm, chain_stuff='stuff', retriever=retriver)
-
-    response = qa_chain.invoke({"query": query})
-    return response
+    prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            "Use the following context to answer. "
+            ".\n\n{context}"
+        ),
+        ("human", "{question}")
+    ])
+    chain = (
+        {
+            "context": retriever,
+            "question": RunnablePassthrough(),
+        }
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+    return chain.invoke(query)
