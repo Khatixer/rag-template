@@ -34,7 +34,7 @@ for message in st.session_state.messages:
 prompt = st.chat_input("Ask any question to the chat")
 if prompt:
     st.chat_message("user").markdown(prompt)
-    st.session_state.message.append({"role": "user", "content": prompt})
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
     # Generate rag response in here
     with st.chat_message("ROBOT"):
@@ -50,5 +50,5 @@ if prompt:
                 for i, source in enumerate(sources):
                     st.markdown(f"**Source {i+1}:** {source.page_content}")
             # Append the response to the message history
-            st.session_state.message.append({"role": "ROBOT", "content": answer})
+            st.session_state.messages.append({"role": "ROBOT", "content": answer})
 
